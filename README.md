@@ -6,6 +6,7 @@ Django web app that blends facial expression recognition with a short wellbeing 
 
 ## What it does
 - Capture or upload a face image; preprocess with CLAHE and either MTCNN (preferred) or Haar cascades.
+- Persist wellbeing responses, predictions, and live-stream summaries to the database for admin review.
 - Stream 1 frame/sec from the browser while the user answers questions; only predictions are kept in session (capped to ~60 frames).
 - Run the first available model in `fer_model` (AffectNet -> CK+ JSON/weights -> CK+-based -> legacy FER) with automatic label alignment.
 - Score an 8-question Likert wellbeing survey (Q2 and Q6 reverse-scored) to produce raw and percent scores.

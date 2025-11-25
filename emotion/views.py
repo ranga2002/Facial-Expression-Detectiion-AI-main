@@ -6,6 +6,7 @@ from io import BytesIO
 
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.db.utils import OperationalError
 from django.utils.text import get_valid_filename
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
@@ -15,6 +16,7 @@ from openai import OpenAI
 from PIL import Image
 
 from .forms import ImageUploadForm
+from .models import EmotionStreamEntry, WellbeingSurvey
 from .utils import (
     DEFAULT_THRESHOLD,
     model_summary,
@@ -22,7 +24,74 @@ from .utils import (
     predict_emotion,
     get_suggestion,
     summarize_emotion_stream,
+    get_model,
 )
+
+CHAT_MODEL = "gpt-4o-mini"
+MAX_CHAT_TURNS = 10
+MAX_ASSISTANT_TOKENS = 220
+CRISIS_PHRASES = ("suicide", "self-harm", "hurt myself", "kill myself", "end my life")
+
+
+def _ensure_session_key(request):
+    if not request.session.session_key:
+        request.session.create()
+    return request.session.session_key
+
+
+def _crisis_message():
+    return (
+        "I'm here to help, but I can't provide crisis support. "
+        "If you feel unsafe, please contact a trusted person or your local emergency helpline right away."
+    )
+
+
+def _is_crisis(text: str) -> bool:
+    lower = (text or "").lower()
+    return any(token in lower for token in CRISIS_PHRASES)
+
+
+def _trim_chat_history(history):
+    """
+    Keep the latest conversational turns (excluding system messages) to cap memory.
+    """
+    if not history:
+        return []
+    system_msgs = [m for m in history if m.get("role") == "system"]
+    convo = [m for m in history if m.get("role") != "system"]
+    trimmed_convo = convo[-(MAX_CHAT_TURNS * 2) :]
+    return (system_msgs[:1] + trimmed_convo) if system_msgs else trimmed_convo
+
+
+def _build_chat_messages(chat_history, user_name="Friend", last_emotion="Neutral", context_note=None):
+    safety_prompt = (
+        "You are a supportive wellbeing companion. Be brief (2-4 sentences), warm, and practical. "
+        "Do not offer medical advice, diagnosis, or crisis counseling; encourage professional help if risk is implied. "
+        f"The user's display name is {user_name} and their last detected emotion is {last_emotion}."
+    )
+    messages = [{"role": "system", "content": safety_prompt}]
+    if context_note:
+        messages.append({"role": "system", "content": f"Last check-in summary: {context_note}"})
+    for msg in _trim_chat_history(chat_history):
+        if msg.get("role") == "system":
+            continue
+        content = (msg.get("content") or "")[:1200]
+        messages.append({"role": msg.get("role"), "content": content})
+    return messages
+
+
+def _serialize_stream_entries(entries):
+    serialized = []
+    for entry in entries:
+        serialized.append(
+            {
+                "label": entry.label,
+                "confidence": float(entry.confidence or 0.0),
+                "timestamp": entry.captured_at.isoformat(timespec="seconds"),
+                "top": entry.top or [],
+            }
+        )
+    return serialized
 
 
 def _init_openai_client():
@@ -99,6 +168,8 @@ def chat_reply(request):
     if request.method != 'POST':
         return JsonResponse({'reply': "Invalid request method."})
 
+    _ensure_session_key(request)
+
     if client is None:
         return JsonResponse({'reply': "OpenAI client is not configured. Please set OPENAI_API_KEY."})
 
@@ -106,42 +177,46 @@ def chat_reply(request):
     if not user_message:
         return JsonResponse({'reply': "Please enter a valid message."})
 
-    # Fetch chat history or start new
-    chat_history = request.session.get('chat_messages', [])
+    if len(user_message) > 800:
+        return JsonResponse({'reply': "Please keep messages under 800 characters."})
 
-    # Add user input
+    name = request.session.get("user_name", "Friend")
+    emotion = request.session.get("last_emotion", "Neutral")
+    context_note = request.session.get("chat_context")
+
+    chat_history = request.session.get('chat_messages', [])
     chat_history.append({
         "role": "user",
         "content": user_message,
         "timestamp": datetime.now().strftime('%H:%M:%S')
     })
 
-    # Add system prompt only once
-    messages = [{"role": msg["role"], "content": msg["content"]} for msg in chat_history]
-    if not any(msg["role"] == "system" for msg in messages):
-        name = request.session.get("user_name", "Friend")
-        emotion = request.session.get("last_emotion", "Neutral")
-        messages.insert(0, {
-            "role": "system",
-            "content": f"You are a supportive AI assistant. The user is {name}, feeling {emotion}. Respond warmly and concisely."
+    if _is_crisis(user_message):
+        crisis_reply = _crisis_message()
+        chat_history.append({
+            "role": "assistant",
+            "content": crisis_reply,
+            "timestamp": datetime.now().strftime('%H:%M:%S')
         })
+        request.session['chat_messages'] = _trim_chat_history(chat_history)
+        request.session.modified = True
+        return JsonResponse({'reply': crisis_reply})
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages
+        ai_reply = generate_openai_response(
+            chat_history,
+            user_name=name,
+            last_emotion=emotion,
+            context_note=context_note,
         )
-        ai_reply = response.choices[0].message.content.strip()
-
         chat_history.append({
             "role": "assistant",
             "content": ai_reply,
             "timestamp": datetime.now().strftime('%H:%M:%S')
         })
-        request.session['chat_messages'] = chat_history
-
+        request.session['chat_messages'] = _trim_chat_history(chat_history)
+        request.session.modified = True
         return JsonResponse({'reply': ai_reply})
-
     except Exception as e:
         return JsonResponse({'reply': f"Sorry, an error occurred: {str(e)}"})
 
@@ -168,26 +243,52 @@ def calculate_score(answers):
     return score, percent, max_score
 
 
-def generate_openai_response(messages):
+def generate_openai_response(messages, user_name="Friend", last_emotion="Neutral", context_note=None):
+    """
+    Call OpenAI with safety rails, capped tokens, and short context.
+    """
     if client is None:
         return "OpenAI client is not configured. Please set OPENAI_API_KEY."
 
-    prompt = list(messages)
-    prompt.insert(1, {
-        "role": "system",
-        "content": "You're an AI mental health buddy. Respond with warmth and empathy, briefly (2-4 lines)."
-    })
+    last_user_text = ""
+    for msg in reversed(messages or []):
+        if msg.get("role") == "user":
+            last_user_text = msg.get("content") or ""
+            break
+
+    if _is_crisis(last_user_text):
+        return _crisis_message()
+
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=prompt
+        prompt = _build_chat_messages(
+            chat_history=messages or [],
+            user_name=user_name or "Friend",
+            last_emotion=last_emotion or "Neutral",
+            context_note=context_note,
         )
-        return response.choices[0].message.content
+        response = client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=prompt,
+            max_tokens=MAX_ASSISTANT_TOKENS,
+            temperature=0.7,
+        )
+        return response.choices[0].message.content.strip()
     except Exception as e:
         return f"Sorry, I couldn't process your request. Please try again later. ({str(e)})"
 
 def index(request):
-    stream_entries = request.session.get("emotion_stream", [])
+    session_key = _ensure_session_key(request)
+    try:
+        get_model()
+    except Exception:
+        pass
+    try:
+        stream_qs = EmotionStreamEntry.objects.filter(session_key=session_key).order_by("-captured_at")[:60]
+        stream_entries = _serialize_stream_entries(stream_qs)
+    except OperationalError:
+        # If migrations haven't run yet, fall back to session-only data.
+        stream_entries = request.session.get("emotion_stream", [])
+    model_info = model_summary()
     question_count = len([name for name in ImageUploadForm().fields if name.startswith("question")])
     result = {
         "prediction": None,
@@ -199,18 +300,21 @@ def index(request):
         "chat_messages": request.session.get('chat_messages', []),
         "remaining_messages": 0,
         "image_preview": None,
-        "model_used": None,
+        "model_used": model_info.get("name"),
         "top_predictions": [],
-        "detector": None,
+        "detector": request.session.get("last_detector"),
         "DEFAULT_THRESHOLD": DEFAULT_THRESHOLD,
         "now": datetime.now(),
         "user_name": request.session.get('user_name', 'Friend'),
         "last_emotion": request.session.get('last_emotion'),
         "stream_summary": summarize_emotion_stream(stream_entries),
-        "stream_entries": list(reversed(stream_entries[-12:])) if stream_entries else [],
+        "stream_entries": stream_entries[:12],
         "step_total": 2 + question_count,  # profile/info + questions + comment
+        "saved": False,
     }
     image_absolute_path = None
+    image_url = None
+    processed = None
 
     if request.method == 'POST':
         if 'clear_chat' in request.POST:
@@ -220,19 +324,24 @@ def index(request):
         if 'chat_message' in request.POST:
             user_input = request.POST.get('user_message')
             chat_messages = request.session.get('chat_messages', [])
-            if chat_messages and len(chat_messages) < 10:
+            if chat_messages and len(chat_messages) < MAX_CHAT_TURNS * 2:
                 chat_messages.append({
                     "role": "user",
                     "content": user_input,
                     "timestamp": datetime.now().strftime('%H:%M:%S')
                 })
-                reply = generate_openai_response([{"role": m["role"], "content": m["content"]} for m in chat_messages])
+                reply = generate_openai_response(
+                    [{"role": m["role"], "content": m["content"]} for m in chat_messages],
+                    user_name=request.session.get("user_name", "Friend"),
+                    last_emotion=request.session.get("last_emotion", "Neutral"),
+                    context_note=request.session.get("chat_context"),
+                )
                 chat_messages.append({
                     "role": "assistant",
                     "content": reply,
                     "timestamp": datetime.now().strftime('%H:%M:%S')
                 })
-                request.session['chat_messages'] = chat_messages
+                request.session['chat_messages'] = _trim_chat_history(chat_messages)
             return redirect('analyze')
 
         form = ImageUploadForm(request.POST, request.FILES)
@@ -258,14 +367,14 @@ def index(request):
             if webcam_image:
                 saved = decode_base64_image(webcam_image)
                 if saved:
-                    image_absolute_path, _ = saved
+                    image_absolute_path, image_url = saved
                 else:
                     form.add_error('image', 'Could not read the captured image. Please try again.')
                     return render(request, 'emotion/result.html', {'form': form, **result})
             elif uploaded_image:
                 saved_path = _save_uploaded_file(uploaded_image)
                 if saved_path:
-                    image_absolute_path, _ = saved_path
+                    image_absolute_path, image_url = saved_path
             else:
                 form.add_error('image', 'Please upload an image or capture one with the camera.')
                 return render(request, 'emotion/result.html', {'form': form, **result})
@@ -282,27 +391,37 @@ def index(request):
                 result["suggestion"] = get_suggestion(result["prediction"])
                 result["image_preview"] = processed.get("preview_b64")
                 result["score"], result["percent_score"], result["score_max"] = calculate_score(answers)
-                stream_log = request.session.get("emotion_stream", [])
-                stream_summary = summarize_emotion_stream(stream_log)
+                stream_entries = _serialize_stream_entries(
+                    EmotionStreamEntry.objects.filter(session_key=session_key).order_by("-captured_at")[:60]
+                )
+                stream_summary = summarize_emotion_stream(stream_entries)
                 result["stream_summary"] = stream_summary
-                result["stream_entries"] = list(reversed(stream_log[-12:])) if stream_log else []
+                result["stream_entries"] = stream_entries[:12]
 
                 request.session['user_name'] = name
                 request.session['last_emotion'] = result["prediction"]
-
-                system_prompt = (
-                    f"User info: {name}, {gender}, {age} years old. "
-                    f"Top emotion: {result['prediction']}. Score: {result['score']}/{result['score_max']}. "
-                    f"Answers: {answers}. Comment: {comment}. "
+                top_text = ", ".join([f"{lbl} ({conf:.2f})" for lbl, conf in result["top_predictions"]]) or "None"
+                summary_prompt = (
+                    f"{name}, {gender}, {age} years. "
+                    f"Detected emotion: {result['prediction']} "
+                    f"(top: {top_text}). "
+                    f"Score: {result['score']}/{result['score_max']} ({result['percent_score']}%). "
+                    f"Answers: {answers}. Comment: {comment or 'No comment'}. "
                     f"Live stream: dominant {stream_summary.get('dominant')} over {stream_summary.get('total')} frames, "
                     f"coverage {stream_summary.get('coverage')}%, avg conf {stream_summary.get('avg_confidence')}."
                 )
+                request.session["chat_context"] = summary_prompt
                 chat_messages = [{
-                    "role": "system",
-                    "content": system_prompt,
+                    "role": "user",
+                    "content": summary_prompt,
                     "timestamp": datetime.now().strftime('%H:%M:%S')
                 }]
-                first_reply = generate_openai_response([{"role": "system", "content": system_prompt}])
+                first_reply = generate_openai_response(
+                    chat_messages,
+                    user_name=name,
+                    last_emotion=result["prediction"],
+                    context_note=summary_prompt,
+                )
                 chat_messages.append({
                     "role": "assistant",
                     "content": first_reply,
@@ -310,8 +429,30 @@ def index(request):
                 })
                 result["openai_response"] = first_reply
                 result["chat_messages"] = chat_messages
-                request.session['chat_messages'] = chat_messages
-                result["stream_summary"] = summarize_emotion_stream(request.session.get("emotion_stream", []))
+                request.session['chat_messages'] = _trim_chat_history(chat_messages)
+
+                survey = WellbeingSurvey.objects.create(
+                    name=name,
+                    gender=gender,
+                    age=age,
+                    answers=answers,
+                    comment=comment,
+                    prediction=result["prediction"],
+                    suggestion=result["suggestion"],
+                    model_used=result["model_used"] or "",
+                    detector=result["detector"] or "",
+                    top_predictions=list(result.get("top_predictions") or []),
+                    score=result["score"],
+                    percent_score=result["percent_score"],
+                    score_max=result["score_max"],
+                    stream_summary=stream_summary,
+                    client_session_key=session_key,
+                    image_path=image_absolute_path or "",
+                    image_url=image_url or "",
+                    openai_response=first_reply,
+                )
+                EmotionStreamEntry.objects.filter(session_key=session_key, survey__isnull=True).update(survey=survey)
+                result["saved"] = True
 
             else:
                 result["prediction"] = "No face detected"
@@ -323,9 +464,9 @@ def index(request):
         request.session["emotion_stream"] = []
         form = ImageUploadForm()
         result["chat_messages"] = []
-        result["stream_summary"] = summarize_emotion_stream([])
+        result["stream_summary"] = summarize_emotion_stream(stream_entries)
 
-    result["remaining_messages"] = max(0, 5 - (len(result["chat_messages"]) // 2))
+    result["remaining_messages"] = max(0, MAX_CHAT_TURNS - (len(result["chat_messages"]) // 2))
     return render(request, 'emotion/result.html', {'form': form, **result})
 
 
@@ -357,6 +498,7 @@ def stream_frame(request):
     Receive a base64-encoded frame from the browser, run FER, and store lightweight
     predictions in the session so we can summarize during the survey.
     """
+    session_key = _ensure_session_key(request)
     frame_data = request.POST.get("frame", "")
     if not frame_data or ";base64," not in frame_data:
         return JsonResponse({"error": "No frame provided."}, status=400)
@@ -378,12 +520,15 @@ def stream_frame(request):
             label = prediction.get("label", "Unknown")
             top = prediction.get("top", [])
             conf = float(prediction.get("confidence", 0.0))
-
+            request.session["last_detector"] = processed.get("detector")
+            request.session.modified = True
+        top_for_store = [list(item) for item in top[:3]] if top else []
         entry = {
             "label": label,
             "confidence": conf,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
-            "top": top[:3] if top else [],
+            "top": top_for_store,
+            "detector": processed.get("detector") if processed else None,
         }
         stream_log = request.session.get("emotion_stream", [])
         stream_log.append(entry)
@@ -391,6 +536,20 @@ def stream_frame(request):
         stream_log = stream_log[-60:]
         request.session["emotion_stream"] = stream_log
         request.session.modified = True
+
+        try:
+            EmotionStreamEntry.objects.create(
+                session_key=session_key,
+                label=label,
+                confidence=conf,
+                top=top_for_store,
+            )
+            stale = EmotionStreamEntry.objects.filter(session_key=session_key).order_by("-captured_at")[120:]
+            if stale:
+                EmotionStreamEntry.objects.filter(pk__in=[s.pk for s in stale]).delete()
+        except Exception:
+            # DB writes should not break the live stream; fail silently but keep session log.
+            pass
 
         summary = summarize_emotion_stream(stream_log)
         return JsonResponse({

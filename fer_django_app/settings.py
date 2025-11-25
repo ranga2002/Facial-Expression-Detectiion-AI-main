@@ -14,6 +14,13 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 
+# Load .env early so environment variables are available even in local dev
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except Exception:
+    pass
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
