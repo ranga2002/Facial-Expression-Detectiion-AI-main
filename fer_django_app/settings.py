@@ -10,13 +10,13 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
-from pathlib import Path
 import os
-from dotenv import load_dotenv
+from pathlib import Path
+from urllib.parse import urlparse, unquote
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
 
 
 # Quick-start development settings - unsuitable for production
@@ -90,6 +90,49 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+
+def _database_from_url(url: str):
+    """
+    Parse DATABASE_URL strings like postgres://user:pass@host:5432/dbname.
+    Supports postgres, mysql, and sqlite; falls back to None if unknown.
+    """
+    parsed = urlparse(url)
+    engine_map = {
+        "postgres": "django.db.backends.postgresql",
+        "postgresql": "django.db.backends.postgresql",
+        "postgresql+psycopg2": "django.db.backends.postgresql",
+        "mysql": "django.db.backends.mysql",
+        "mysql2": "django.db.backends.mysql",
+        "sqlite": "django.db.backends.sqlite3",
+        "sqlite3": "django.db.backends.sqlite3",
+    }
+    engine = engine_map.get(parsed.scheme)
+    if not engine:
+        return None
+
+    if engine.endswith("sqlite3"):
+        name = parsed.path.lstrip("/") or "db.sqlite3"
+        return {
+            "ENGINE": engine,
+            "NAME": BASE_DIR / unquote(name),
+        }
+
+    return {
+        "ENGINE": engine,
+        "NAME": unquote(parsed.path.lstrip("/")),
+        "USER": unquote(parsed.username or ""),
+        "PASSWORD": unquote(parsed.password or ""),
+        "HOST": parsed.hostname or "",
+        "PORT": str(parsed.port or ""),
+    }
+
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL:
+    parsed_db = _database_from_url(DATABASE_URL)
+    if parsed_db:
+        DATABASES["default"] = parsed_db
 
 
 # Password validation

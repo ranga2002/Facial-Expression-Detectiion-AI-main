@@ -18,6 +18,7 @@ Django web app that blends facial expression recognition with a short wellbeing 
 - Python 3.10+
 - pip and virtualenv (recommended)
 - Optional: GPU/CUDA for faster TensorFlow inference; OpenAI API key for the chat companion
+- Optional: Vercel CLI for local emulation (`npm i -g vercel`)
 
 ---
 
@@ -70,6 +71,7 @@ Visit http://127.0.0.1:8000/ to start analyzing emotions.
 - `DJANGO_SECRET_KEY`: Django secret key (required in production).
 - `DJANGO_DEBUG`: `true`/`false` toggle for debug mode.
 - `DJANGO_ALLOWED_HOSTS`: comma-separated hostnames when `DEBUG=false`.
+- `DATABASE_URL` (optional): e.g., `postgres://user:pass@host:5432/dbname` for cloud DBs; falls back to local sqlite.
 
 ---
 
@@ -108,6 +110,7 @@ Facial_Emotion_Recognition_Final.ipynb  # training/experiments
 - MTCNN errors: `mtcnn` is optional; the app will fall back to Haar cascades automatically.
 - Chat disabled: set `OPENAI_API_KEY` and restart; the UI will respond with a friendly warning if the key is missing.
 - Webcam blocked: allow camera permissions or use the upload path; live stream is optional.
+- Static files missing on Vercel: ensure the build runs `python manage.py collectstatic --noinput` and that `STATIC_ROOT` resolves to `staticfiles/` (already configured).
 
 ---
 
@@ -115,6 +118,16 @@ Facial_Emotion_Recognition_Final.ipynb  # training/experiments
 - Keep `.env` out of version control; rotate any keys that were ever committed.
 - Set `DJANGO_DEBUG=false`, configure `DJANGO_ALLOWED_HOSTS`, and use HTTPS in production.
 - Run `python manage.py collectstatic` behind a CDN or static host; ensure media storage is secured if you persist uploads.
+- For Vercel, use a cloud database (set `DATABASE_URL`), and prefer cloud object storage for media uploads instead of the ephemeral lambda filesystem.
+
+---
+
+## Deploying to Vercel
+- Config: `vercel.json` routes `/static/*` to collected assets in `staticfiles/` and all other paths to `api/index.py` (WSGI entry).
+- Build step: `python manage.py collectstatic --noinput` (runs on Vercel using your environment variables).
+- Environment (Vercel dashboard): set `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=false`, `DJANGO_ALLOWED_HOSTS=.vercel.app,<your-domain>`, `OPENAI_API_KEY` (optional), and `DATABASE_URL` pointing to a managed Postgres/MySQL instance.
+- Local test: install the Vercel CLI, run `vercel dev` after `pip install -r requirements.txt` and `python manage.py collectstatic --noinput`.
+- Media: use external storage (e.g., S3, GCS) if you plan to persist uploads; the serverless filesystem is not durable.
 
 ---
 
