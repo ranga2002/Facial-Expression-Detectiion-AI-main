@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+.env
+.env.example
+data/
+media/
+fer_model/
+Facial_Emotion_Recognition_Final.ipynb
+.git/
