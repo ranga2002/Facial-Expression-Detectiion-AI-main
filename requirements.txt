@@ -1,5 +1,5 @@
 tensorflow-cpu==2.18.1
-numpy==2.2.3
+numpy
 opencv-python-headless==4.11.0.86
 pillow==11.0.0
 mtcnn==1.0.0
