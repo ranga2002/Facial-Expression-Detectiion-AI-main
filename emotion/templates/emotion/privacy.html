@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Privacy & Safety{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-6" data-aos="fade-right">
+    <div class="card-neo p-4 h-100">
+      <div class="pill mb-3">Privacy stance</div>
+      <h2 class="fw-bold mb-2">Your data stays yours.</h2>
+      <p class="text-muted">We minimize what we keep and how long we keep it. File names are sanitized and saved via Django storage under <code>media/</code>; you can clear sessions anytime.</p>
+      <ul class="list-unstyled text-muted">
+        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>No API keys in code; OpenAI key is pulled from <code>OPENAI_API_KEY</code>.</li>
+        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Session chat capped and clearable; avoids unbounded growth.</li>
+        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Uploads stored under predictable folders (<code>uploads/</code>, <code>captures/</code>).</li>
+      </ul>
+    </div>
+  </div>
+  <div class="col-lg-6" data-aos="fade-left">
+    <div class="card-neo p-4 h-100">
+      <h5 class="fw-bold mb-2"><i class="fas fa-shield-alt me-2 text-info"></i>Operational notes</h5>
+      <ul class="list-unstyled text-muted mb-3">
+        <li class="mb-2"><i class="fas fa-circle-info text-warning me-2"></i>This is not medical advice. For clinical needs, consult licensed professionals.</li>
+        <li class="mb-2"><i class="fas fa-circle-info text-warning me-2"></i>FER models can inherit dataset bias; please pair with human judgment.</li>
+        <li class="mb-2"><i class="fas fa-circle-info text-warning me-2"></i>Consider configuring automatic cleanup for media if deployed long-term.</li>
+      </ul>
+      <div class="d-flex gap-3">
+        <a href="{% url 'analyze' %}" class="btn-accent">Start a check</a>
+        <a href="{% url 'model_card' %}" class="btn-ghost">Model card</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

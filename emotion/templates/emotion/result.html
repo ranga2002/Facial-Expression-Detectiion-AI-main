@@ -1,0 +1,504 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Emotion Lab{% endblock %}
+
+{% block content %}
+<div class="row g-4 align-items-start">
+  <div class="col-lg-7" data-aos="fade-right">
+    <div class="card-neo p-4 h-100">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <div class="pill mb-2"><i class="fas fa-bolt me-2 text-warning"></i>Dual pipeline: face crop + wellbeing survey</div>
+          <h2 class="fw-bold mb-0">Run an Emotion Check-in</h2>
+          <p class="text-muted mb-0">AffectNet/CK+ models with contrast-aware preprocessing for sturdier predictions.</p>
+        </div>
+        <div class="tag"><i class="fas fa-shield-alt me-2 text-info"></i>Local processing</div>
+      </div>
+
+      {% if form.errors %}
+        <div class="alert alert-warning">
+          <strong>Fix these before submitting:</strong>
+          <ul class="mb-0">
+            {% for field in form %}
+              {% for error in field.errors %}<li>{{ field.label }} - {{ error }}</li>{% endfor %}
+            {% endfor %}
+            {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      <div class="card-neo p-3 mb-3 bg-transparent border border-secondary" style="border-style: dashed;">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <div>
+            <div class="pill mb-2"><i class="fas fa-circle-play text-success me-2"></i>Live capture while you answer</div>
+            <h6 class="mb-1">Stream 1 frame/sec to track emotions during the survey.</h6>
+            <small class="text-muted">We only keep predictions (no images) and cap to ~60 frames.</small>
+          </div>
+          <div class="text-end">
+            <div class="tag mb-1" id="live-status">Idle</div>
+            <small class="text-muted">Frames: <span id="live-frames">0</span></small>
+          </div>
+        </div>
+        <div class="ratio ratio-4x3 rounded overflow-hidden position-relative bg-dark">
+          <video id="live-video" class="w-100 h-100" autoplay muted playsinline style="object-fit: cover;"></video>
+          <div id="live-placeholder" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center text-muted small">
+            Click start to allow your camera while you read and respond.
+          </div>
+          <canvas id="live-canvas" width="320" height="240" class="d-none"></canvas>
+        </div>
+        <div class="d-flex gap-2 mt-3">
+          <button type="button" class="btn-accent flex-grow-1" id="live-start"><i class="fas fa-video me-2"></i>Start live capture</button>
+          <button type="button" class="btn-ghost flex-grow-1" id="live-stop" disabled><i class="fas fa-stop-circle me-2"></i>Stop</button>
+        </div>
+        <div class="mt-2 text-muted small" id="live-summary">Waiting to start...</div>
+        <small class="text-muted d-block mt-1">Consent: live video is processed locally for emotion scores; no frames are stored.</small>
+      </div>
+
+      <form id="analyze-form" method="post" enctype="multipart/form-data" class="row g-4">
+        {% csrf_token %}
+
+        <div class="d-flex justify-content-between align-items-center">
+          <div class="pill">Step <span id="step-current">1</span> / <span id="step-total">{{ step_total|default:6 }}</span></div>
+          <div class="tag"><i class="fas fa-list-ol me-2 text-info"></i>One question at a time</div>
+        </div>
+        <div class="progress" style="height: 6px;">
+          <div id="step-progress" class="progress-bar bg-info" role="progressbar" style="width: 0%" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+
+        <div class="col-12 step-pane" data-step="0">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label text-muted">Your Name</label>
+              <div class="form-control bg-transparent text-white border-0 card-neo p-0">
+                {{ form.name }}
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label text-muted">Gender</label>
+              <div class="form-control bg-transparent text-white border-0 card-neo p-0">
+                {{ form.gender }}
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label text-muted d-flex justify-content-between">
+                <span>Age</span><span class="fw-bold" id="ageValue">{{ form.age.value|default:25 }}</span>
+              </label>
+              {{ form.age }}
+            </div>
+            <div class="col-12">
+              <div class="d-flex flex-wrap gap-3 align-items-center">
+                <label class="form-label text-muted mb-0">{{ form.image.label }}</label>
+                <div class="tag"><i class="fas fa-upload"></i> JPEG/PNG, good lighting</div>
+                <div class="tag"><i class="fas fa-video"></i> Or capture live</div>
+              </div>
+              <div class="mt-2 card-neo p-3">
+                {{ form.image }}
+                {% if form.image.errors %}
+                  <div class="text-danger small mt-2">{{ form.image.errors|striptags }}</div>
+                {% endif %}
+                <div class="mt-3">
+                  <button type="button" class="btn btn-ghost me-2" data-bs-toggle="modal" data-bs-target="#cameraModal">
+                    <i class="fas fa-camera me-2"></i> Use webcam
+                  </button>
+                  <input type="hidden" name="captured_image" id="captured_image">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-12 step-pane d-none" data-step="1">
+          <div class="d-flex gap-2 align-items-center mb-2">
+            <span class="pill"><i class="fas fa-heartbeat me-2 text-danger"></i>Quick wellbeing pulse</span>
+            <small class="text-muted">Questions 2 and 6 are reverse scored to catch stress.</small>
+          </div>
+          <p class="text-muted mb-1">{{ form.question1.label }}</p>
+          {{ form.question1 }}
+        </div>
+
+        <div class="col-12 step-pane d-none" data-step="2">
+          <p class="text-muted mb-1">{{ form.question2.label }}</p>
+          {{ form.question2 }}
+        </div>
+
+        <div class="col-12 step-pane d-none" data-step="3">
+          <p class="text-muted mb-1">{{ form.question3.label }}</p>
+          {{ form.question3 }}
+        </div>
+
+        <div class="col-12 step-pane d-none" data-step="4">
+          <p class="text-muted mb-1">{{ form.question4.label }}</p>
+          {{ form.question4 }}
+        </div>
+
+        <div class="col-12 step-pane d-none" data-step="5">
+          <p class="text-muted mb-1">{{ form.question5.label }}</p>
+          {{ form.question5 }}
+        </div>
+
+        <div class="col-12 step-pane d-none" data-step="6">
+          <p class="text-muted mb-1">{{ form.question6.label }}</p>
+          {{ form.question6 }}
+        </div>
+
+        <div class="col-12 step-pane d-none" data-step="7">
+          <p class="text-muted mb-1">{{ form.question7.label }}</p>
+          {{ form.question7 }}
+        </div>
+
+        <div class="col-12 step-pane d-none" data-step="8">
+          <p class="text-muted mb-1">{{ form.question8.label }}</p>
+          {{ form.question8 }}
+        </div>
+
+        <div class="col-12 step-pane d-none" data-step="9">
+          <label class="form-label text-muted">{{ form.comment.label }}</label>
+          {{ form.comment }}
+          <div class="alert alert-secondary small mt-3 mb-0">
+            <i class="fas fa-info-circle me-2"></i>Submit to stop capture and generate the combined wellbeing + emotion summary.
+          </div>
+        </div>
+
+        <div class="col-12 d-flex justify-content-between align-items-center mt-2">
+          <button type="button" class="btn-ghost" id="step-prev" disabled><i class="fas fa-arrow-left me-2"></i>Previous</button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn-ghost" id="step-next"><i class="fas fa-arrow-right me-2"></i>Next</button>
+            <button type="submit" class="btn-accent d-none" id="step-submit"><i class="fas fa-wave-square me-2"></i>Analyze now</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-lg-5" data-aos="fade-left">
+    <div class="card-neo p-4 mb-4">
+      <h5 class="fw-bold mb-3">Live status</h5>
+      <div class="d-flex flex-column gap-3">
+        <div class="tag"><i class="fas fa-brain text-info"></i> Model: {{ model_used|default:"Not loaded" }}</div>
+        <div class="tag"><i class="fas fa-eye text-warning"></i> Detector: {{ detector|default:"-" }}</div>
+        <div class="tag"><i class="fas fa-thumbs-up text-success"></i> Confidence gate: {{ DEFAULT_THRESHOLD|default:0.3 }}</div>
+        <p class="text-muted mb-0">We use CLAHE to stabilize lighting, MTCNN when available, then CK+/AffectNet heads for richer labels.</p>
+      </div>
+    </div>
+
+    <div class="card-neo p-4 mb-4">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="fw-bold mb-0"><i class="fas fa-video text-success me-2"></i>Live capture summary</h5>
+        <span class="pill">Frames: {{ stream_summary.total|default:0 }}</span>
+      </div>
+      {% if stream_summary.total %}
+        <p class="text-muted mb-1">Dominant: {{ stream_summary.dominant|default:"-" }} | Avg conf: {{ stream_summary.avg_confidence|floatformat:2 }} | Std: {{ stream_summary.std_confidence|floatformat:2 }}</p>
+        <p class="text-muted small mb-2">Coverage >= threshold: {{ stream_summary.coverage|default:0 }}% | Entropy: {{ stream_summary.entropy|default:0 }}</p>
+        {% if stream_summary.distribution %}
+          <div class="mb-2">
+            {% for label, pct in stream_summary.distribution %}
+              <div class="d-flex justify-content-between small text-muted">
+                <span>{{ label }}</span><span>{{ pct }}%</span>
+              </div>
+              <div class="progress mb-2" style="height: 6px;">
+                <div class="progress-bar bg-info" role="progressbar" style="width: {{ pct }}%" aria-valuenow="{{ pct }}" aria-valuemin="0" aria-valuemax="100"></div>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          {% for label, count in stream_summary.counts.items %}
+            <span class="tag">{{ label }} x {{ count }}</span>
+          {% endfor %}
+        </div>
+        {% if stream_entries %}
+          <div class="mt-2">
+            <h6 class="text-muted small mb-1">Timeline (latest)</h6>
+            <ul class="list-unstyled small mb-0">
+              {% for entry in stream_entries %}
+                <li class="mb-1">
+                  <span class="tag">{{ entry.timestamp|default:"-" }}</span>
+                  {{ entry.label }} @ {{ entry.confidence|floatformat:2 }}
+                  {% if entry.top %}
+                    <span class="text-muted">Top: {% for lbl, conf in entry.top %}{{ lbl }} ({{ conf|floatformat:2 }}){% if not forloop.last %}, {% endif %}{% endfor %}</span>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+        <small class="text-muted d-block mt-2">Last seen: {{ stream_summary.last_label|default:"-" }}</small>
+      {% else %}
+        <p class="text-muted mb-0">Start live capture to collect emotions while you read and answer.</p>
+      {% endif %}
+    </div>
+
+    {% if prediction %}
+    <div class="card-neo p-4 mb-4">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <p class="pill mb-2"><i class="fas fa-signal me-2 text-success"></i>Top emotion</p>
+          <h3 class="fw-bold">{{ prediction }}</h3>
+          <p class="text-muted mb-0">{{ suggestion }}</p>
+        </div>
+        <div class="text-end">
+          {% if top_predictions %}
+            <div class="tag mb-1">Conf: {{ top_predictions.0.1|floatformat:2 }}</div>
+            <div class="text-muted small">Model: {{ model_used }}</div>
+          {% endif %}
+        </div>
+      </div>
+      {% if top_predictions %}
+        <div class="mt-3 d-flex flex-wrap gap-2">
+          {% for label, conf in top_predictions %}
+            <span class="tag">{{ label }} - {{ conf|floatformat:2 }}</span>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if openai_response %}
+    <div class="card-neo p-4 mb-4">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="fw-bold mb-0"><i class="fas fa-comment-dots me-2 text-info"></i>AI Insight</h5>
+        <span class="pill">Score: {{ score }}/{{ score_max|default:20 }} - {{ percent_score }}%</span>
+      </div>
+      <p class="mb-2">{{ openai_response }}</p>
+      <div class="progress" style="height: 8px;">
+        <div class="progress-bar bg-info" role="progressbar" style="width: {{ percent_score }}%" aria-valuenow="{{ percent_score }}" aria-valuemin="0" aria-valuemax="100"></div>
+      </div>
+      <small class="text-muted d-block mt-2">Higher is steadier wellbeing. Question 2 is inverted to check stress drift.</small>
+    </div>
+    {% endif %}
+
+    {% if image_preview %}
+    <div class="card-neo p-4 text-center">
+      <h6 class="text-muted">Detected face</h6>
+      <img src="data:image/png;base64,{{ image_preview }}" alt="Face preview" class="img-fluid rounded mt-2" style="max-height: 240px;">
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-4 mt-4">
+  <div class="col-lg-6" data-aos="fade-up">
+    <div class="card-neo p-4">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="fw-bold mb-0"><i class="fas fa-comments me-2 text-info"></i>Chat with the copilot</h5>
+        <span class="pill">Remaining replies: {{ remaining_messages }}</span>
+      </div>
+      <div id="chat-log" class="chat-box mb-3">
+        {% for msg in chat_messages %}
+          {% if msg.role != "system" %}
+            <div class="d-flex {% if msg.role == 'user' %}justify-content-end{% else %}justify-content-start{% endif %} mb-2">
+              <div class="chat-bubble {% if msg.role == 'user' %}chat-user{% else %}chat-assistant{% endif %}">
+                <strong>{{ msg.role|title }}:</strong><br>{{ msg.content }}
+                {% if msg.timestamp %}<div class="timestamp small text-muted mt-1">{{ msg.timestamp }}</div>{% endif %}
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <form id="chat-form" class="d-flex">
+        {% csrf_token %}
+        <input type="text" id="chat-input" class="form-control me-2" placeholder="Type a message..." required>
+        <button class="btn-accent" type="submit"><i class="fas fa-paper-plane"></i></button>
+      </form>
+      {% if chat_messages %}
+      <form method="post" class="mt-3 text-end">
+        {% csrf_token %}
+        <button name="clear_chat" value="true" class="btn-ghost btn-sm"><i class="fas fa-trash-alt me-2"></i>Clear chat</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-6" data-aos="fade-up" data-aos-delay="100">
+    <div class="card-neo p-4 h-100">
+      <h5 class="fw-bold mb-3"><i class="fas fa-lightbulb me-2 text-warning"></i>How we keep accuracy higher</h5>
+      <ul class="list-unstyled text-muted">
+        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>AffectNet + CK+ checkpoints prioritized, auto-fallback to legacy if missing.</li>
+        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Contrast Limited Adaptive Histogram Equalization (CLAHE) before resize.</li>
+        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>MTCNN preferred for tighter boxes; Haar cascade as CPU-safe fallback.</li>
+        <li class="mb-2"><i class="fas fa-check text-success me-2"></i>Test-time flip averaging to smooth jittery predictions.</li>
+      </ul>
+      <a href="{% url 'model_card' %}" class="btn-ghost mt-2">See model card</a>
+    </div>
+  </div>
+</div>
+
+<!-- Camera Modal -->
+<div class="modal fade" id="cameraModal" tabindex="-1" aria-labelledby="cameraModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content text-dark">
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title"><i class="fas fa-camera me-2"></i>Capture in real time</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body text-center">
+        <video id="video" width="320" height="240" autoplay class="border rounded shadow-sm"></video>
+        <canvas id="canvas" width="320" height="240" style="display:none;"></canvas>
+        <div class="mt-3">
+          <button class="btn-accent" type="button" onclick="capturePhoto()">
+            <i class="fas fa-camera-retro me-2"></i>Capture frame
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const startBtn = document.getElementById("live-start");
+    const stopBtn = document.getElementById("live-stop");
+    const video = document.getElementById("live-video");
+    const canvas = document.getElementById("live-canvas");
+    const placeholder = document.getElementById("live-placeholder");
+    const statusTag = document.getElementById("live-status");
+    const framesEl = document.getElementById("live-frames");
+    const summaryEl = document.getElementById("live-summary");
+    const formEl = document.getElementById("analyze-form");
+
+    const steps = Array.from(document.querySelectorAll(".step-pane"));
+    const stepCurrent = document.getElementById("step-current");
+    const stepTotal = document.getElementById("step-total");
+    const stepProgress = document.getElementById("step-progress");
+    const nextBtn = document.getElementById("step-next");
+    const prevBtn = document.getElementById("step-prev");
+    const submitBtn = document.getElementById("step-submit");
+
+    const FRAME_INTERVAL_MS = 1500;
+    let liveStream = null;
+    let liveTimer = null;
+    let sending = false;
+    let autoStarted = false;
+    let currentStep = 0;
+
+    function setStatus(text, tone) {
+      if (!statusTag) return;
+      statusTag.textContent = text;
+      statusTag.classList.remove("text-success", "text-warning");
+      if (tone === "go") statusTag.classList.add("text-success");
+      if (tone === "warn") statusTag.classList.add("text-warning");
+    }
+
+    function stopLiveStream() {
+      if (liveTimer) {
+        clearInterval(liveTimer);
+        liveTimer = null;
+      }
+      if (liveStream) {
+        liveStream.getTracks().forEach(t => t.stop());
+        liveStream = null;
+      }
+      if (video) video.srcObject = null;
+      setStatus("Stopped", "warn");
+      placeholder?.classList.remove("d-none");
+      if (startBtn) startBtn.disabled = false;
+      if (stopBtn) stopBtn.disabled = true;
+    }
+
+    async function startLiveStream() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setStatus("Camera not supported", "warn");
+        return;
+      }
+      if (liveStream) return;
+      try {
+        liveStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 320, height: 240 } });
+        if (video) {
+          video.srcObject = liveStream;
+          await video.play();
+        }
+        placeholder?.classList.add("d-none");
+        setStatus("Recording...", "go");
+        if (startBtn) startBtn.disabled = true;
+        if (stopBtn) stopBtn.disabled = false;
+        await sendFrame();
+        liveTimer = window.setInterval(sendFrame, FRAME_INTERVAL_MS);
+      } catch (err) {
+        setStatus("Camera blocked", "warn");
+      }
+    }
+
+    async function sendFrame() {
+      if (!video || !canvas || !liveStream || sending) return;
+      if (!video.videoWidth || !video.videoHeight) return;
+      sending = true;
+      canvas.width = 320;
+      canvas.height = 240;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+      const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || "";
+
+      try {
+        const response = await fetch("{% url 'frame_api' %}", {
+          method: "POST",
+          headers: {
+            "X-CSRFToken": csrfToken,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: `frame=${encodeURIComponent(dataUrl)}`,
+        });
+        const data = await response.json();
+        if (framesEl && data.frames !== undefined) framesEl.textContent = data.frames;
+        updateSummaryText(data);
+      } catch (err) {
+        setStatus("Stream error", "warn");
+      } finally {
+        sending = false;
+      }
+    }
+
+    function updateSummaryText(data) {
+      if (!summaryEl) return;
+      if (data?.summary?.total) {
+        const s = data.summary;
+        summaryEl.textContent = `Live: ${s.last_label || "Unknown"} | Dominant ${s.dominant || "-"} | Avg conf ${Number(s.avg_confidence || 0).toFixed(2)} | Coverage ${s.coverage || 0}% | ${s.total} frames`;
+      } else if (data?.label) {
+        summaryEl.textContent = `Live: ${data.label}`;
+      } else {
+        summaryEl.textContent = "Waiting to start...";
+      }
+    }
+
+    startBtn?.addEventListener("click", startLiveStream);
+    stopBtn?.addEventListener("click", stopLiveStream);
+    formEl?.addEventListener("submit", () => stopLiveStream());
+    window.addEventListener("beforeunload", stopLiveStream);
+
+    function showStep(idx) {
+      steps.forEach((pane, i) => {
+        pane.classList.toggle("d-none", i !== idx);
+      });
+      currentStep = idx;
+      if (stepCurrent) stepCurrent.textContent = (idx + 1).toString();
+      if (stepTotal) stepTotal.textContent = steps.length.toString();
+      if (stepProgress) {
+        const pct = Math.round(((idx + 1) / steps.length) * 100);
+        stepProgress.style.width = `${pct}%`;
+      }
+      if (prevBtn) prevBtn.disabled = idx === 0;
+      if (nextBtn) nextBtn.classList.toggle("d-none", idx >= steps.length - 1);
+      if (submitBtn) submitBtn.classList.toggle("d-none", idx < steps.length - 1);
+
+      if (idx >= 1 && !autoStarted) {
+        autoStarted = true;
+        startLiveStream();
+      }
+    }
+
+    nextBtn?.addEventListener("click", () => {
+      if (currentStep < steps.length - 1) {
+        showStep(currentStep + 1);
+      }
+    });
+    prevBtn?.addEventListener("click", () => {
+      if (currentStep > 0) {
+        showStep(currentStep - 1);
+      }
+    });
+
+    showStep(0);
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,44 @@
+<div class="modal fade" id="chatModal" tabindex="-1" aria-labelledby="chatModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content text-dark animate__animated animate__fadeInUp">
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title"><i class="fas fa-user-astronaut me-2"></i>Aura AI — your wellbeing buddy</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <h5 class="fw-bold">
+            {% if now.hour < 12 %}
+              Good Morning,
+            {% elif now.hour < 17 %}
+              Good Afternoon,
+            {% else %}
+              Good Evening,
+            {% endif %}
+            {{ user_name|default:"Friend" }}!
+          </h5>
+          {% if last_emotion %}
+            <p class="text-muted">We noticed you're feeling <strong>{{ last_emotion }}</strong>. I'm here for you.</p>
+          {% else %}
+            <p class="text-muted">How are you feeling today? Let's talk.</p>
+          {% endif %}
+        </div>
+
+        <div id="chat-log-modal" class="chat-box mb-3 border rounded p-3" style="max-height: 300px; overflow-y: auto;">
+        </div>
+
+        <form id="chat-form-modal" class="d-flex">
+          {% csrf_token %}
+          <input type="text" id="chat-input-modal" class="form-control me-2" placeholder="Type a message..." required>
+          <button class="btn btn-primary" type="submit"><i class="fas fa-paper-plane"></i> Send</button>
+        </form>
+
+        <div class="mt-3 text-center">
+          <span class="badge bg-light text-dark me-2 emotion-trigger" data-message="I'm feeling great today!">Happy</span>
+          <span class="badge bg-light text-dark me-2 emotion-trigger" data-message="I'm feeling a bit low.">Sad</span>
+          <span class="badge bg-light text-dark emotion-trigger" data-message="I'm stressed and need a quick reset.">Stressed</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

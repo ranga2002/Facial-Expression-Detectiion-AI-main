@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Affective Insight{% endblock %}
+
+{% block content %}
+<div class="row align-items-center g-4">
+  <div class="col-lg-6" data-aos="fade-right">
+    <div class="pill mb-3 d-inline-flex align-items-center gap-2">
+      <i class="fas fa-satellite-dish text-info"></i>
+      Real-time FER + wellbeing pulse
+    </div>
+    <h1 class="display-5 fw-bold mb-3">A calmer way to read and reflect on your emotions.</h1>
+    <p class="text-muted">AffectNet and CK+ models tuned for facial expressions, paired with a short wellbeing survey and an OpenAI-powered copilot to translate signals into caring suggestions.</p>
+    <div class="d-flex gap-3 mt-4">
+      <a href="{% url 'analyze' %}" class="btn-accent"><i class="fas fa-face-smile me-2"></i>Start a check-in</a>
+      <a href="{% url 'model_card' %}" class="btn-ghost"><i class="fas fa-database me-2"></i>Model & data</a>
+    </div>
+    <div class="d-flex gap-3 mt-4 flex-wrap">
+      <span class="tag"><i class="fas fa-bolt text-warning"></i>CLAHE lighting boost</span>
+      <span class="tag"><i class="fas fa-eye text-info"></i>MTCNN or Haar fallback</span>
+      <span class="tag"><i class="fas fa-lock text-success"></i>Local-first processing</span>
+    </div>
+  </div>
+  <div class="col-lg-6" data-aos="fade-left">
+    <div class="card-neo p-4 h-100">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="fw-bold mb-0">How it flows</h5>
+        <span class="pill">~15s demo</span>
+      </div>
+      <div class="d-flex flex-column gap-3">
+        <div class="d-flex gap-3">
+          <div class="brand-mark"><i class="fas fa-camera"></i></div>
+          <div>
+            <h6 class="mb-1">Capture or upload</h6>
+            <p class="text-muted mb-0">Front-facing, clear lighting. We sanitize filenames and keep processing local.</p>
+          </div>
+        </div>
+        <div class="d-flex gap-3">
+          <div class="brand-mark"><i class="fas fa-wand-magic-sparkles"></i></div>
+          <div>
+            <h6 class="mb-1">Preprocess</h6>
+            <p class="text-muted mb-0">CLAHE for contrast, MTCNN/Haar for detection, 48x48 grayscale crop normalized in-memory.</p>
+          </div>
+        </div>
+        <div class="d-flex gap-3">
+          <div class="brand-mark"><i class="fas fa-brain"></i></div>
+          <div>
+            <h6 class="mb-1">Predict & reflect</h6>
+            <p class="text-muted mb-0">AffectNet/CK+ heads with flip-averaged logits; AI copilot writes a short, kind reflection.</p>
+          </div>
+        </div>
+      </div>
+      <div class="mt-3">
+        <a href="{% url 'analyze' %}" class="btn-accent w-100">Run it now</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mt-5">
+  <div class="col-md-4" data-aos="fade-up">
+    <div class="card-neo p-4 h-100">
+      <div class="pill mb-2">Model stack</div>
+      <h5 class="fw-bold">AffectNet priority</h5>
+      <p class="text-muted">Attempts AffectNet first, then CK+ JSON/weights, CK+-based H5, and finally legacy FER. Labels auto-align to output dims.</p>
+    </div>
+  </div>
+  <div class="col-md-4" data-aos="fade-up" data-aos-delay="50">
+    <div class="card-neo p-4 h-100">
+      <div class="pill mb-2">Wellbeing</div>
+      <h5 class="fw-bold">Likert pulse</h5>
+      <p class="text-muted">Four quick Likert questions; second is reverse-scored to catch stress drift. Score normalized to 0-20 and percent.</p>
+    </div>
+  </div>
+  <div class="col-md-4" data-aos="fade-up" data-aos-delay="100">
+    <div class="card-neo p-4 h-100">
+      <div class="pill mb-2">Privacy</div>
+      <h5 class="fw-bold">Safe defaults</h5>
+      <p class="text-muted mb-2">Sanitized filenames via Django storage, no raw keys in code, and minimal session footprint.</p>
+      <a href="{% url 'privacy' %}" class="btn-ghost btn-sm">See privacy notes</a>
+    </div>
+  </div>
+</div>
+
+<div class="card-neo p-4 mt-5" data-aos="fade-up">
+  <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between">
+    <div>
+      <h4 class="fw-bold mb-1">Ready to see how you feel?</h4>
+      <p class="text-muted mb-0">One photo + four answers → a concise, kind reflection.</p>
+    </div>
+    <div class="d-flex gap-3 mt-3 mt-lg-0">
+      <a href="{% url 'analyze' %}" class="btn-accent"><i class="fas fa-bolt me-2"></i>Analyze emotion</a>
+      <a href="{% url 'resources' %}" class="btn-ghost"><i class="fas fa-heart me-2"></i>Wellness tips</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

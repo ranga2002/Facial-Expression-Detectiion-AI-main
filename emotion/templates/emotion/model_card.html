@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}Model & Data{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-7" data-aos="fade-right">
+    <div class="card-neo p-4 h-100">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="pill">Model card</div>
+        <span class="tag"><i class="fas fa-gavel me-2 text-warning"></i>Use responsibly</span>
+      </div>
+      <h2 class="fw-bold mb-2">Emotion backbones</h2>
+      <p class="text-muted">We prioritize richer, well-labeled checkpoints to reduce bias and increase robustness before falling back to legacy FER weights.</p>
+      <ul class="list-unstyled text-muted">
+        <li class="mb-2"><i class="fas fa-check text-success me-2"></i><strong>AffectNet</strong> (`AffectNet_trained_keras.h5`) — 8 emotions including contempt; preferred when present.</li>
+        <li class="mb-2"><i class="fas fa-check text-success me-2"></i><strong>Pure CK+48</strong> (`Pure CK+48.json` + weights) — 7-class CK+ baseline.</li>
+        <li class="mb-2"><i class="fas fa-check text-success me-2"></i><strong>CK+-based</strong> (`CK+-based.h5`) — alternate CK+ head.</li>
+        <li class="mb-2"><i class="fas fa-check text-success me-2"></i><strong>Legacy FER</strong> (`emotion_model.h5`) — last resort fallback.</li>
+      </ul>
+      <p class="text-muted">Output labels auto-align to the model’s final dimension (7 or 8). If a mismatch occurs, generic `Class_n` labels are shown to avoid misreporting.</p>
+    </div>
+  </div>
+  <div class="col-lg-5" data-aos="fade-left">
+    <div class="card-neo p-4 mb-4">
+      <h5 class="fw-bold">Preprocessing</h5>
+      <ul class="list-unstyled text-muted mb-0">
+        <li class="mb-2"><i class="fas fa-moon text-info me-2"></i>CLAHE on grayscale faces to stabilize lighting.</li>
+        <li class="mb-2"><i class="fas fa-eye text-warning me-2"></i>MTCNN boxes when available; Haar cascade fallback on CPU-only.</li>
+        <li class="mb-2"><i class="fas fa-arrows-left-right text-success me-2"></i>48×48 grayscale, normalized to [0,1], plus horizontal flip test-time averaging.</li>
+      </ul>
+    </div>
+    <div class="card-neo p-4">
+      <h5 class="fw-bold">Ethics & limits</h5>
+      <ul class="list-unstyled text-muted">
+        <li class="mb-2"><i class="fas fa-circle-info text-warning me-2"></i>Not a diagnostic. Use as a reflective aid.</li>
+        <li class="mb-2"><i class="fas fa-shield-alt text-success me-2"></i>Uploads are stored via Django storage with sanitized names; no raw keys in code.</li>
+        <li class="mb-2"><i class="fas fa-flag text-danger me-2"></i>Models inherit dataset biases. Always confirm with human judgment.</li>
+      </ul>
+      <div class="d-flex gap-3 mt-2">
+        <a href="{% url 'analyze' %}" class="btn-accent">Try it</a>
+        <a href="{% url 'privacy' %}" class="btn-ghost">Privacy notes</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
