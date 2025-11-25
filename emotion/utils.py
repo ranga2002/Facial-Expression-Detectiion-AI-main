@@ -6,13 +6,25 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import requests
 from PIL import Image
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
 from tensorflow.keras.models import load_model, model_from_json
 from tensorflow.keras.preprocessing.image import img_to_array
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-MODEL_DIR = BASE_DIR / "fer_model"
+
+
+def _resolve_model_dir():
+    if os.getenv("FER_MODEL_DIR"):
+        return Path(os.getenv("FER_MODEL_DIR"))
+    if os.getenv("VERCEL"):
+        return Path("/tmp/fer_model")
+    return BASE_DIR / "fer_model"
+
+
+MODEL_DIR = _resolve_model_dir()
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
 EMOTION_INPUT_SIZE = (48, 48)
 MIN_FACE_SIZE = 48
 MTCNN_MIN_CONF = 0.90
@@ -41,6 +53,7 @@ MODEL_CANDIDATES = [
     {
         "name": "AffectNet",
         "path": MODEL_DIR / "AffectNet_trained_keras.h5",
+        "env_url": "AFFECTNET_BLOB_URL",
         "labels": ["Neutral", "Happy", "Sad", "Surprise", "Fear", "Disgust", "Angry", "Contempt"],
         "loader": lambda cfg: load_model(cfg["path"]),
     },
@@ -48,18 +61,22 @@ MODEL_CANDIDATES = [
         "name": "Pure CK+48",
         "json": MODEL_DIR / "Pure CK+48.json",
         "weights": MODEL_DIR / "Pure CK+48_weights.h5",
+        "json_env_url": "CK_JSON_BLOB_URL",
+        "weights_env_url": "CK_WEIGHTS_BLOB_URL",
         "labels": ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"],
         "loader": lambda cfg: _load_json_model(cfg["json"], cfg["weights"]),
     },
     {
         "name": "CK+-based",
         "path": MODEL_DIR / "CK+-based.h5",
+        "env_url": "CK_MODEL_BLOB_URL",
         "labels": ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"],
         "loader": lambda cfg: load_model(cfg["path"]),
     },
     {
         "name": "Legacy",
         "path": MODEL_DIR / "emotion_model.h5",
+        "env_url": "LEGACY_BLOB_URL",
         "labels": ["Angry", "Fear", "Happy", "Sad", "Surprise", "Neutral"],  # legacy 6-class FER
         "loader": lambda cfg: load_model(cfg["path"]),
     },
@@ -92,12 +109,50 @@ def _select_largest_face(boxes):
     return max(boxes, key=lambda b: b[2] * b[3])
 
 
+def _download_blob(url: str, dest: Path, timeout: int = 60):
+    if not url:
+        return False
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with requests.get(url, stream=True, timeout=timeout) as r:
+            r.raise_for_status()
+            with open(dest, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1024 * 512):
+                    if chunk:
+                        f.write(chunk)
+        return True
+    except Exception as exc:
+        print(f"Download failed for {url}: {exc}")
+        return False
+
+
+def _ensure_candidate_files(candidate):
+    tasks = []
+    url = candidate.get("env_url")
+    if url:
+        tasks.append((url, candidate.get("path")))
+    json_url = candidate.get("json_env_url")
+    if json_url:
+        tasks.append((json_url, candidate.get("json")))
+    weights_url = candidate.get("weights_env_url")
+    if weights_url:
+        tasks.append((weights_url, candidate.get("weights")))
+
+    for env_key, target in tasks:
+        if not target:
+            continue
+        env_val = os.getenv(env_key, "").strip()
+        if env_val and not target.exists():
+            _download_blob(env_val, target)
+
+
 def get_model(force_reload: bool = False):
     global _model, _model_name, _model_labels, _input_size
     if _model is not None and not force_reload:
         return _model
 
     for candidate in MODEL_CANDIDATES:
+        _ensure_candidate_files(candidate)
         loader = candidate.get("loader")
         if not loader:
             continue

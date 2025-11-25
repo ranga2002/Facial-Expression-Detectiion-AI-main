@@ -20,6 +20,7 @@ Django web app that blends facial expression recognition with a short wellbeing 
 - pip and virtualenv (recommended)
 - Optional: GPU/CUDA for faster TensorFlow inference; OpenAI API key for the chat companion
 - Optional: Vercel CLI for local emulation (`npm i -g vercel`)
+- Optional: Vercel Blob or other object storage to host large `.h5` model files (see deployment notes)
 
 ---
 
@@ -129,6 +130,7 @@ Facial_Emotion_Recognition_Final.ipynb  # training/experiments
 - Environment (Vercel dashboard): set `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=false`, `DJANGO_ALLOWED_HOSTS=.vercel.app,<your-domain>`, `OPENAI_API_KEY` (optional), and `DATABASE_URL` pointing to a managed Postgres/MySQL instance.
 - Local test: install the Vercel CLI, run `vercel dev` after `pip install -r requirements.txt` and `python manage.py collectstatic --noinput`.
 - Media: use external storage (e.g., S3, GCS) if you plan to persist uploads; the serverless filesystem is not durable.
+- Models via Vercel Blob: upload your `.h5`/JSON/weights to Vercel Blob and expose public URLs as `AFFECTNET_BLOB_URL`, `CK_JSON_BLOB_URL`, `CK_WEIGHTS_BLOB_URL`, `CK_MODEL_BLOB_URL`, `LEGACY_BLOB_URL`. Set `FER_MODEL_DIR=/tmp/fer_model` (or another writable path) so the app downloads models at runtime. `.vercelignore` keeps `fer_model/**` out of the deploy bundle to stay under size limits.
 
 ---
 
