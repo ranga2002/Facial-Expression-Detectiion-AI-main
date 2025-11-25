@@ -8,3 +8,4 @@ requests==2.32.3
 Django==5.2
 openai==1.72.0
 psycopg[binary]==3.2.2
+gunicorn==23.0.0
