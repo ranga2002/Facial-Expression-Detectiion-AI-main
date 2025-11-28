@@ -112,57 +112,28 @@
           </div>
         </div>
 
-        <div class="col-12 step-pane d-none" data-step="1">
+        {% for qfield in question_fields %}
+        <div class="col-12 step-pane d-none" data-step="{{ forloop.counter }}">
           <div class="d-flex gap-2 align-items-center mb-2">
-            <span class="pill"><i class="fas fa-heartbeat me-2 text-danger"></i>Quick wellbeing pulse</span>
-            <small class="text-muted">Questions 2 and 6 are reverse scored to catch stress.</small>
+            {% if forloop.first %}
+              <span class="pill"><i class="fas fa-heartbeat me-2 text-danger"></i>Quick wellbeing pulse</span>
+              <small class="text-muted">Some questions are reverse-scored to catch stress drift.</small>
+            {% endif %}
           </div>
-          <p class="text-muted mb-1">{{ form.question1.label }}</p>
-          {{ form.question1 }}
+          <p class="text-muted mb-1">{{ qfield.label }}</p>
+          {{ qfield }}
         </div>
+        {% endfor %}
 
-        <div class="col-12 step-pane d-none" data-step="2">
-          <p class="text-muted mb-1">{{ form.question2.label }}</p>
-          {{ form.question2 }}
-        </div>
-
-        <div class="col-12 step-pane d-none" data-step="3">
-          <p class="text-muted mb-1">{{ form.question3.label }}</p>
-          {{ form.question3 }}
-        </div>
-
-        <div class="col-12 step-pane d-none" data-step="4">
-          <p class="text-muted mb-1">{{ form.question4.label }}</p>
-          {{ form.question4 }}
-        </div>
-
-        <div class="col-12 step-pane d-none" data-step="5">
-          <p class="text-muted mb-1">{{ form.question5.label }}</p>
-          {{ form.question5 }}
-        </div>
-
-        <div class="col-12 step-pane d-none" data-step="6">
-          <p class="text-muted mb-1">{{ form.question6.label }}</p>
-          {{ form.question6 }}
-        </div>
-
-        <div class="col-12 step-pane d-none" data-step="7">
-          <p class="text-muted mb-1">{{ form.question7.label }}</p>
-          {{ form.question7 }}
-        </div>
-
-        <div class="col-12 step-pane d-none" data-step="8">
-          <p class="text-muted mb-1">{{ form.question8.label }}</p>
-          {{ form.question8 }}
-        </div>
-
-        <div class="col-12 step-pane d-none" data-step="9">
+        {% with comment_step=question_fields|length|add:"1" %}
+        <div class="col-12 step-pane d-none" data-step="{{ comment_step }}">
           <label class="form-label text-muted">{{ form.comment.label }}</label>
           {{ form.comment }}
           <div class="alert alert-secondary small mt-3 mb-0">
             <i class="fas fa-info-circle me-2"></i>Submit to stop capture and generate the combined wellbeing + emotion summary.
           </div>
         </div>
+        {% endwith %}
 
         <div class="col-12 d-flex justify-content-between align-items-center mt-2">
           <button type="button" class="btn-ghost" id="step-prev" disabled><i class="fas fa-arrow-left me-2"></i>Previous</button>

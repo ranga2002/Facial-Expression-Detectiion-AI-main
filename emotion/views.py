@@ -220,12 +220,16 @@ def chat_reply(request):
     except Exception as e:
         return JsonResponse({'reply': f"Sorry, an error occurred: {str(e)}"})
 
-def calculate_score(answers):
+def calculate_score(answers, reverse_flags=None):
     """
     Convert Likert responses (1-5) into a wellbeing score.
     Some questions are negatively phrased, so they are inverted (5 becomes 1).
     """
-    reverse_indexes = {1, 5}  # zero-based: question2, question6
+    reverse_indexes = set()
+    if reverse_flags:
+        reverse_indexes = {idx for idx, flag in enumerate(reverse_flags) if flag}
+    elif not reverse_flags:
+        reverse_indexes = {1, 5}  # backward compatibility
     normalized = []
     for index, ans in enumerate(answers):
         try:
@@ -278,6 +282,7 @@ def generate_openai_response(messages, user_name="Friend", last_emotion="Neutral
 
 def index(request):
     session_key = _ensure_session_key(request)
+    selected_questions = request.session.get("selected_questions") or None
     try:
         get_model()
     except Exception:
@@ -289,7 +294,11 @@ def index(request):
         # If migrations haven't run yet, fall back to session-only data.
         stream_entries = request.session.get("emotion_stream", [])
     model_info = model_summary()
-    question_count = len([name for name in ImageUploadForm().fields if name.startswith("question")])
+    if request.method != "POST" and not selected_questions:
+        selected_questions = ImageUploadForm.sample_questions()
+        request.session["selected_questions"] = selected_questions
+
+    question_count = len(selected_questions or [])
     result = {
         "prediction": None,
         "suggestion": None,
@@ -344,21 +353,12 @@ def index(request):
                 request.session['chat_messages'] = _trim_chat_history(chat_messages)
             return redirect('analyze')
 
-        form = ImageUploadForm(request.POST, request.FILES)
+        form = ImageUploadForm(request.POST, request.FILES, selected_questions=selected_questions)
         if form.is_valid():
             name = form.cleaned_data['name']
             gender = form.cleaned_data['gender']
             age = form.cleaned_data['age']
-            answers = [
-                form.cleaned_data['question1'],
-                form.cleaned_data['question2'],
-                form.cleaned_data['question3'],
-                form.cleaned_data['question4'],
-                form.cleaned_data['question5'],
-                form.cleaned_data['question6'],
-                form.cleaned_data['question7'],
-                form.cleaned_data['question8'],
-            ]
+            answers = [form.cleaned_data.get(f"question{i}") for i in range(1, len(form.selected_questions) + 1)]
             comment = form.cleaned_data['comment']
 
             webcam_image = request.POST.get('captured_image', '').strip()
@@ -390,7 +390,7 @@ def index(request):
                 result["detector"] = processed.get("detector")
                 result["suggestion"] = get_suggestion(result["prediction"])
                 result["image_preview"] = processed.get("preview_b64")
-                result["score"], result["percent_score"], result["score_max"] = calculate_score(answers)
+                result["score"], result["percent_score"], result["score_max"] = calculate_score(answers, form.get_reverse_flags())
                 stream_entries = _serialize_stream_entries(
                     EmotionStreamEntry.objects.filter(session_key=session_key).order_by("-captured_at")[:60]
                 )
@@ -462,9 +462,16 @@ def index(request):
     else:
         request.session["chat_messages"] = []
         request.session["emotion_stream"] = []
-        form = ImageUploadForm()
+        form = ImageUploadForm(selected_questions=selected_questions)
         result["chat_messages"] = []
         result["stream_summary"] = summarize_emotion_stream(stream_entries)
+
+    # Refresh question metadata for the template.
+    question_fields = [field for field in form if field.name.startswith("question")]
+    result["question_fields"] = question_fields
+    question_count = len(question_fields)
+    result["step_total"] = 2 + question_count
+    result["score_max"] = 5 * question_count if question_count else result.get("score_max", 0)
 
     result["remaining_messages"] = max(0, MAX_CHAT_TURNS - (len(result["chat_messages"]) // 2))
     return render(request, 'emotion/result.html', {'form': form, **result})

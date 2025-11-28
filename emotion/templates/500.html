@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Something went wrong{% endblock %}
+{% block content %}
+<div class="container py-5">
+  <div class="card-neo p-4 text-center">
+    <h2 class="fw-bold mb-3">Something went wrong</h2>
+    <p class="text-muted mb-3">We hit a snag processing your request. Please retry in a moment or start a fresh check-in.</p>
+    <a class="btn-accent" href="{% url 'home' %}"><i class="fas fa-redo me-2"></i>Try again</a>
+  </div>
+</div>
+{% endblock %}
