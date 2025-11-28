@@ -49,30 +49,8 @@ _model_name = None
 _model_labels = []
 _resnet = None
 
+# To keep memory usage low on small dynos, only load the smallest legacy model.
 MODEL_CANDIDATES = [
-    {
-        "name": "AffectNet",
-        "path": MODEL_DIR / "AffectNet_trained_keras.h5",
-        "env_url": "AFFECTNET_BLOB_URL",
-        "labels": ["Neutral", "Happy", "Sad", "Surprise", "Fear", "Disgust", "Angry", "Contempt"],
-        "loader": lambda cfg: load_model(cfg["path"]),
-    },
-    {
-        "name": "Pure CK+48",
-        "json": MODEL_DIR / "Pure CK+48.json",
-        "weights": MODEL_DIR / "Pure CK+48_weights.h5",
-        "json_env_url": "CK_JSON_BLOB_URL",
-        "weights_env_url": "CK_WEIGHTS_BLOB_URL",
-        "labels": ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"],
-        "loader": lambda cfg: _load_json_model(cfg["json"], cfg["weights"]),
-    },
-    {
-        "name": "CK+-based",
-        "path": MODEL_DIR / "CK+-based.h5",
-        "env_url": "CK_MODEL_BLOB_URL",
-        "labels": ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"],
-        "loader": lambda cfg: load_model(cfg["path"]),
-    },
     {
         "name": "Legacy",
         "path": MODEL_DIR / "emotion_model.h5",

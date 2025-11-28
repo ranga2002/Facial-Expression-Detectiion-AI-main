@@ -77,13 +77,10 @@ Visit http://127.0.0.1:8000/ to start analyzing emotions.
 ---
 
 ## Model artifacts
-Store models in `fer_model/` (present in this repo). The loader picks the first available in this order:
-1) `AffectNet_trained_keras.h5` (8 labels, preferred)
-2) `Pure CK+48.json` + `Pure CK+48_weights.h5`
-3) `CK+-based.h5`
-4) `emotion_model.h5` (legacy FER2013, 6 labels)
+Store models in `fer_model/` (present in this repo). On low-memory hosts, only the legacy model is used:
+- `emotion_model.h5` (legacy FER2013, 6 labels)
 
-If none load, predictions fall back to `"Model unavailable"`.
+If it cannot load, predictions fall back to `"Model unavailable"`.
 
 ---
 
